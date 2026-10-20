@@ -9,9 +9,6 @@ const securityHeaders = [
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   reactStrictMode: true,
-  // Trace dependencies from the pnpm workspace root so serverless bundles
-  // include hoisted packages and Prisma's native query engine.
-  outputFileTracingRoot: new URL('../..', import.meta.url).pathname,
   async headers() {
     return [{ source: '/:path*', headers: securityHeaders }];
   },
@@ -24,29 +21,24 @@ const nextConfig = {
     '@zapdos/realtime',
   ],
   experimental: {
+    // Trace dependencies from the pnpm workspace root so serverless bundles
+    // include hoisted packages and Prisma's native query engine.
+    outputFileTracingRoot: new URL('../..', import.meta.url).pathname,
     // Monorepo-friendly: include workspace packages in server/native builds.
     serverComponentsExternalPackages: [
       '@prisma/client',
       'bcryptjs',
       'bullmq',
       'ioredis',
-      '@vercel/sandbox',
     ],
-    // `@prisma/client` is externalized, so Next doesn't automatically copy the
-    // generated native engine into each serverless function.
+    // Externalized packages are not copied automatically. The judge loads the
+    // pre-bundled sandbox SDK at runtime, so ship that artifact.
     outputFileTracingIncludes: {
       '/api/**/*': [
         '../../node_modules/.pnpm/@prisma+client*/node_modules/.prisma/client/**/*',
+        'sandbox/**/*',
       ],
     },
-  },
-  webpack: (config, { isServer }) => {
-    if (isServer && Array.isArray(config.externals)) {
-      // `@vercel/sandbox` pulls in undici 7, whose private-class-field syntax
-      // webpack 5 (Next 14) can't parse. Keep it as a runtime require.
-      config.externals.push('@vercel/sandbox');
-    }
-    return config;
   },
 };
 

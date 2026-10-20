@@ -18,7 +18,7 @@
  * Hobby plan's sandbox CPU-hours.
  */
 
-import { Sandbox } from '@vercel/sandbox';
+import type { Sandbox as SandboxInstance } from '@vercel/sandbox';
 import type { LanguageConfig } from './languages';
 import {
   TimeoutError,
@@ -34,6 +34,49 @@ const MAX_CONCURRENT = (() => {
   const v = Number(process.env.JUDGE_SANDBOX_MAX_CONCURRENT ?? '6');
   return Number.isFinite(v) && v > 0 ? Math.floor(v) : 6;
 })();
+
+type SandboxModule = typeof import('@vercel/sandbox');
+
+let sandboxModulePromise: Promise<SandboxModule> | null = null;
+
+/**
+ * Load the SDK through Node's native ESM loader.
+ *
+ * The package is ESM but Next's serverless bundle runs as CommonJS and its
+ * `require` shim cannot load ESM-only dependencies (`@workflow/serde`, `jose`).
+ * `scripts/bundle-sandbox.mjs` produces a standalone ESM bundle so native
+ * `import()` does not depend on pnpm's symlink layout in the deployment.
+ */
+export function loadSandboxModule(): Promise<SandboxModule> {
+  if (!sandboxModulePromise) {
+    sandboxModulePromise = (async () => {
+      const [{ existsSync }, { join, dirname }, { pathToFileURL }] = await Promise.all([
+        import('node:fs'),
+        import('node:path'),
+        import('node:url'),
+      ]);
+      const candidates: string[] = [];
+      let dir = process.cwd();
+      for (let i = 0; i < 4; i += 1) {
+        candidates.push(
+          join(dir, 'sandbox', 'sandbox.mjs'),
+          join(dir, 'apps', 'web', 'sandbox', 'sandbox.mjs'),
+        );
+        dir = dirname(dir);
+      }
+      const entry = candidates.find((candidate) => existsSync(candidate));
+      if (!entry) {
+        throw new Error(`Sandbox bundle not found from ${process.cwd()}`);
+      }
+      const nativeImport = new Function(
+        'specifier',
+        'return import(specifier)',
+      ) as (specifier: string) => Promise<SandboxModule>;
+      return nativeImport(pathToFileURL(entry).href);
+    })();
+  }
+  return sandboxModulePromise;
+}
 
 let active = 0;
 const waiters: (() => void)[] = [];
@@ -154,9 +197,10 @@ export async function executeBatchInSandbox(
     ...inputs.map((input, i) => ({ path: `tc_${i + 1}.txt`, content: input })),
   ];
 
+  const { Sandbox } = await loadSandboxModule();
   await acquireSlot();
 
-  let sandbox: Sandbox | null = null;
+  let sandbox: SandboxInstance | null = null;
   try {
     sandbox = await Sandbox.create({
       source: { type: 'snapshot', snapshotId: SNAPSHOT_ID },

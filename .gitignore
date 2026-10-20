@@ -40,3 +40,7 @@ coverage/
 
 # docker volumes
 .docker-data/
+.vercel
+
+# generated sandbox SDK bundle
+apps/web/sandbox/
