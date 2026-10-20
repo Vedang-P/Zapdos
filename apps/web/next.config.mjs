@@ -9,6 +9,9 @@ const securityHeaders = [
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   reactStrictMode: true,
+  // Trace dependencies from the pnpm workspace root so serverless bundles
+  // include hoisted packages and Prisma's native query engine.
+  outputFileTracingRoot: new URL('../..', import.meta.url).pathname,
   async headers() {
     return [{ source: '/:path*', headers: securityHeaders }];
   },
@@ -29,6 +32,13 @@ const nextConfig = {
       'ioredis',
       '@vercel/sandbox',
     ],
+    // `@prisma/client` is externalized, so Next doesn't automatically copy the
+    // generated native engine into each serverless function.
+    outputFileTracingIncludes: {
+      '/api/**/*': [
+        '../../node_modules/.pnpm/@prisma+client*/node_modules/.prisma/client/**/*',
+      ],
+    },
   },
   webpack: (config, { isServer }) => {
     if (isServer && Array.isArray(config.externals)) {
