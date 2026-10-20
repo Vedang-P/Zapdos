@@ -1,11 +1,7 @@
 import { NextResponse } from 'next/server';
 import { requireUser } from '@/lib/session';
-import { redis } from '@/lib/redis';
-import { enqueue, dequeue, QUEUE_KEY } from '@zapdos/match';
+import { queueJoin, queueLeave } from '@/lib/socket';
 import { db } from '@zapdos/db';
-
-// ioredis Redis satisfies RedisLike at runtime; cast to satisfy TS
-const queueRedis = redis as any;
 
 export const dynamic = 'force-dynamic';
 
@@ -24,12 +20,6 @@ export async function POST(req: Request) {
       // No body or invalid JSON — default to SPRINT
     }
 
-    // Check if already in queue
-    const score = await queueRedis.zscore(QUEUE_KEY, user.id);
-    if (score !== null) {
-      return NextResponse.json({ status: 'already_queued' });
-    }
-
     // Check if user is already in an active match
     const activeMatch = await db.match.findFirst({
       where: {
@@ -46,12 +36,14 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: 'User not found' }, { status: 404 });
     }
 
-    await enqueue(queueRedis, {
-      userId: user.id,
-      elo: dbUser.elo,
-      joinedAtMs: Date.now(),
-      mode,
-    });
+    const result = await queueJoin({ userId: user.id, elo: dbUser.elo, mode });
+    if (!result) {
+      return NextResponse.json({ error: 'Matchmaking unavailable' }, { status: 503 });
+    }
+
+    if (result.status === 'already_queued') {
+      return NextResponse.json({ status: 'already_queued' });
+    }
 
     return NextResponse.json({ status: 'queued', mode });
   } catch (e) {
@@ -65,7 +57,10 @@ export async function POST(req: Request) {
 export async function DELETE() {
   try {
     const user = await requireUser();
-    await dequeue(queueRedis, user.id);
+    const ok = await queueLeave(user.id);
+    if (!ok) {
+      return NextResponse.json({ error: 'Matchmaking unavailable' }, { status: 503 });
+    }
     return NextResponse.json({ status: 'dequeued' });
   } catch (e) {
     if (e instanceof Error && e.message === 'UNAUTHORIZED') {

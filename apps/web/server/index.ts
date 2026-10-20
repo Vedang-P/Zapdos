@@ -11,7 +11,7 @@
  * - Disconnect cleanup
  */
 
-import { createServer } from 'node:http';
+import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { createHmac, timingSafeEqual } from 'node:crypto';
 import { Server, Socket } from 'socket.io';
 import { createAdapter } from '@socket.io/redis-adapter';
@@ -19,85 +19,187 @@ import Redis from 'ioredis';
 import type { ClientEvents, ServerEvents } from '@zapdos/realtime';
 import { matchRoom, userRoom } from '@zapdos/realtime';
 import { db } from '@zapdos/db';
+import { enqueue, dequeue, QUEUE_KEY, type RedisLike } from '@zapdos/match';
 
-const PORT = Number(process.env.REALTIME_PORT ?? 3002);
+const PORT = Number(process.env.REALTIME_PORT ?? process.env.PORT ?? 3002);
 const AUTH_SECRET = process.env.AUTH_SECRET ?? process.env.NEXTAUTH_SECRET ?? '';
 const REDIS_URL = process.env.REDIS_URL ?? 'redis://localhost:6379';
+const CORS_ORIGINS = (process.env.REALTIME_CORS_ORIGIN ?? 'http://localhost:3000')
+  .split(',')
+  .map((origin) => origin.trim())
+  .filter(Boolean);
 
 interface AuthenticatedSocket extends Socket {
   userId?: string;
   username?: string;
 }
 
-const httpServer = createServer((req, res) => {
-  // Health check
-  if (req.url === '/health') {
-    res.writeHead(200, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify({ status: 'ok' }));
-    return;
-  }
+const MAX_BODY = 1_000_000; // 1MB cap
 
-  // HTTP bridge: other processes POST events here to be emitted via Socket.IO.
-  // HMAC-signed with AUTH_SECRET to prevent forgery.
-  if (req.url === '/emit' && req.method === 'POST') {
+function sendJson(res: ServerResponse, status: number, payload: unknown): void {
+  res.writeHead(status, { 'Content-Type': 'application/json' });
+  res.end(JSON.stringify(payload));
+}
+
+function readBody(req: IncomingMessage, res: ServerResponse): Promise<string | null> {
+  return new Promise((resolve) => {
     let body = '';
     let bodySize = 0;
-    const MAX_BODY = 1_000_000; // 1MB cap
-    req.on('data', (chunk) => {
+    let settled = false;
+
+    const finish = (value: string | null) => {
+      if (settled) return;
+      settled = true;
+      resolve(value);
+    };
+
+    req.on('data', (chunk: Buffer) => {
+      if (settled) return;
       bodySize += chunk.length;
       if (bodySize > MAX_BODY) {
+        sendJson(res, 413, { error: 'Body too large' });
         req.destroy();
-        res.writeHead(413, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ error: 'Body too large' }));
+        finish(null);
         return;
       }
-      body += chunk;
+      body += chunk.toString('utf8');
     });
-    req.on('end', () => {
-      try {
-        // Verify HMAC signature
-        const sig = req.headers['x-internal-signature'] as string | undefined;
-        if (!AUTH_SECRET || !sig) {
-          res.writeHead(403, { 'Content-Type': 'application/json' });
-          res.end(JSON.stringify({ error: 'Missing signature' }));
-          return;
-        }
-        const expectedSig = createHmac('sha256', AUTH_SECRET).update(body).digest('hex');
-        const sigBuf = Buffer.from(sig);
-        const expectedBuf = Buffer.from(expectedSig);
-        if (sigBuf.length !== expectedBuf.length || !timingSafeEqual(sigBuf, expectedBuf)) {
-          res.writeHead(403, { 'Content-Type': 'application/json' });
-          res.end(JSON.stringify({ error: 'Invalid signature' }));
-          return;
-        }
+    req.on('end', () => finish(body));
+    req.on('error', () => {
+      if (settled) return;
+      sendJson(res, 400, { error: 'Invalid request' });
+      finish(null);
+    });
+  });
+}
 
-        const { room, event, payload } = JSON.parse(body) as {
-          room: string;
-          event: string;
-          payload: unknown;
-        };
-        if (!room || !event) {
-          res.writeHead(400, { 'Content-Type': 'application/json' });
-          res.end(JSON.stringify({ error: 'Missing room or event' }));
-          return;
-        }
-        io.to(room).emit(event as any, payload);
-        res.writeHead(200, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ ok: true }));
-      } catch {
-        res.writeHead(400, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ error: 'Invalid JSON' }));
-      }
-    });
+/** Read a JSON body and verify its HMAC signature. */
+async function readSignedJson(
+  req: IncomingMessage,
+  res: ServerResponse,
+): Promise<unknown | null> {
+  const body = await readBody(req, res);
+  if (body === null) return null;
+
+  const sig = req.headers['x-internal-signature'] as string | undefined;
+  if (!AUTH_SECRET || !sig) {
+    sendJson(res, 403, { error: 'Missing signature' });
+    return null;
+  }
+
+  const expectedSig = createHmac('sha256', AUTH_SECRET).update(body).digest('hex');
+  const sigBuf = Buffer.from(sig);
+  const expectedBuf = Buffer.from(expectedSig);
+  if (sigBuf.length !== expectedBuf.length || !timingSafeEqual(sigBuf, expectedBuf)) {
+    sendJson(res, 403, { error: 'Invalid signature' });
+    return null;
+  }
+
+  try {
+    return JSON.parse(body);
+  } catch {
+    sendJson(res, 400, { error: 'Invalid JSON' });
+    return null;
+  }
+}
+
+/**
+ * Matchmaking queue bridge. The web app (on Vercel) has no Redis, so join /
+ * leave / status calls are forwarded here, where the queue and matchmaker live.
+ */
+async function handleQueue(
+  path: string,
+  data: unknown,
+  res: ServerResponse,
+): Promise<void> {
+  const payload = (data ?? {}) as { userId?: unknown; elo?: unknown; mode?: unknown };
+  const userId = typeof payload.userId === 'string' ? payload.userId : '';
+  if (!userId) {
+    sendJson(res, 400, { error: 'Missing userId' });
     return;
   }
 
-  res.writeHead(404);
-  res.end();
+  try {
+    if (path === '/queue/join') {
+      const elo = Number(payload.elo);
+      if (!Number.isFinite(elo)) {
+        sendJson(res, 400, { error: 'Invalid elo' });
+        return;
+      }
+      const mode = payload.mode === 'PROGRESSIVE' ? 'PROGRESSIVE' : 'SPRINT';
+      const score = await pubClient.zscore(QUEUE_KEY, userId);
+      if (score !== null) {
+        sendJson(res, 200, { status: 'already_queued' });
+        return;
+      }
+      await enqueue(queueRedis, {
+        userId,
+        elo,
+        joinedAtMs: Date.now(),
+        mode,
+      });
+      sendJson(res, 200, { status: 'queued' });
+      return;
+    }
+
+    if (path === '/queue/leave') {
+      await dequeue(queueRedis, userId);
+      sendJson(res, 200, { status: 'dequeued' });
+      return;
+    }
+
+    if (path === '/queue/status') {
+      const score = await pubClient.zscore(QUEUE_KEY, userId);
+      sendJson(res, 200, { status: score !== null ? 'queued' : 'idle' });
+      return;
+    }
+
+    sendJson(res, 404, { error: 'Not found' });
+  } catch (err) {
+    console.error('[realtime] queue bridge error:', err);
+    sendJson(res, 500, { error: 'Queue unavailable' });
+  }
+}
+
+const httpServer = createServer(async (req, res) => {
+  // Health check (also used by the Cloudflare keepalive cron and Render).
+  if (req.url === '/health') {
+    sendJson(res, 200, { status: 'ok' });
+    return;
+  }
+
+  // HMAC-signed internal bridge endpoints.
+  if (
+    req.method === 'POST' &&
+    (req.url === '/emit' || req.url?.startsWith('/queue/'))
+  ) {
+    const data = await readSignedJson(req, res);
+    if (data === null) return;
+
+    if (req.url === '/emit') {
+      const { room, event, payload } = data as {
+        room?: string;
+        event?: string;
+        payload?: unknown;
+      };
+      if (!room || !event) {
+        sendJson(res, 400, { error: 'Missing room or event' });
+        return;
+      }
+      io.to(room).emit(event as any, payload);
+      sendJson(res, 200, { ok: true });
+      return;
+    }
+
+    await handleQueue(req.url!, data, res);
+    return;
+  }
+
+  sendJson(res, 404, { error: 'Not found' });
 });
 
 const io: InstanceType<typeof Server<ClientEvents, ServerEvents>> = new Server<ClientEvents, ServerEvents>(httpServer, {
-  cors: { origin: process.env.REALTIME_CORS_ORIGIN ?? 'http://localhost:3000', credentials: true },
+  cors: { origin: CORS_ORIGINS, credentials: true },
   maxHttpBufferSize: 1e6,
   connectTimeout: 10000,
 });
@@ -106,6 +208,9 @@ const io: InstanceType<typeof Server<ClientEvents, ServerEvents>> = new Server<C
 // share rooms and can emit to sockets connected to any instance.
 const pubClient = new Redis(REDIS_URL, { maxRetriesPerRequest: null });
 const subClient = pubClient.duplicate();
+const queueRedis = pubClient as unknown as RedisLike;
+pubClient.on('error', (err) => console.error('[realtime] Redis error:', err.message));
+subClient.on('error', (err) => console.error('[realtime] Redis subscriber error:', err.message));
 io.adapter(createAdapter(pubClient, subClient));
 
 // Track connected sockets per match
@@ -334,7 +439,7 @@ io.on('connection', (socket: AuthenticatedSocket) => {
 // Export io for use by other modules (matchmaking worker, etc.)
 export { io, matchRoom, userRoom };
 
-httpServer.listen(PORT, () => {
+httpServer.listen(PORT, '0.0.0.0', () => {
   console.log(`[realtime] Socket.IO server listening on :${PORT}`);
 });
 

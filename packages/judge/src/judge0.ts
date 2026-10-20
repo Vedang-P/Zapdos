@@ -450,13 +450,21 @@ function multiFileLangConfig(language: LanguageConfig): MultiFileLang {
 }
 
 /** Build the bash harness that runs the compiled program against every case. */
-function buildRunHarness(n: number, cpuSeconds: number, wallSeconds: number, cap: number, nonce: string): string {
+export function buildRunHarness(
+  n: number,
+  cpuSeconds: number,
+  wallSeconds: number,
+  cap: number,
+  nonce: string,
+  memoryMb?: number,
+): string {
   return [
     '#!/usr/bin/env bash',
     `N=${n}`,
     `CPU_S=${cpuSeconds}`,
     `WALL_S=${wallSeconds}`,
     `CAP=${cap}`,
+    ...(memoryMb ? [`export MEM_MB=${memoryMb}`] : []),
     `S='${nonce}'`,
     'for ((i=1;i<=N;i++)); do',
     '  start=$(date +%s%N)',
@@ -477,7 +485,7 @@ function buildRunHarness(n: number, cpuSeconds: number, wallSeconds: number, cap
 }
 
 /** Parse the harness transcript back into ordered per-case results. */
-function parseBatchTranscript(transcript: string, nonce: string, n: number): BatchCaseResult[] {
+export function parseBatchTranscript(transcript: string, nonce: string, n: number): BatchCaseResult[] {
   const cases: BatchCaseResult[] = [];
   for (let i = 1; i <= n; i++) {
     const hMarker = `${nonce}H${i} `;

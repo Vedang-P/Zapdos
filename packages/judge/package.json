@@ -12,13 +12,16 @@
     }
   },
   "scripts": {
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "snapshot": "tsx scripts/create-sandbox-snapshot.ts"
   },
   "dependencies": {
+    "@vercel/sandbox": "3.8.0",
     "@zapdos/db": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "20.12.12",
+    "tsx": "4.9.3",
     "typescript": "5.4.5"
   }
 }

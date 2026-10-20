@@ -14,8 +14,40 @@
  */
 
 import { isOutputCorrect } from './compare';
-import { executeBatch, TimeoutError, type BatchCaseResult } from './judge0';
+import {
+  executeBatch as executeBatchJudge0,
+  pingPiston,
+  TimeoutError,
+  type BatchCaseResult,
+} from './judge0';
+import { executeBatchInSandbox, pingSandbox } from './sandbox';
 import type { LanguageConfig } from './languages';
+
+export type JudgeBackend = 'judge0' | 'sandbox';
+
+/**
+ * `judge0` is the local/self-hosted default. Production on Vercel uses
+ * `sandbox` because the public Judge0 CPU/wall/file limits are too small.
+ */
+function judgeBackend(): JudgeBackend {
+  return (process.env.JUDGE_BACKEND ?? 'judge0').toLowerCase() === 'sandbox'
+    ? 'sandbox'
+    : 'judge0';
+}
+
+export async function pingJudge(): Promise<{
+  ok: boolean;
+  backend: JudgeBackend;
+  detail?: string;
+}> {
+  if (judgeBackend() === 'sandbox') return pingSandbox();
+  const ok = await pingPiston();
+  return {
+    ok,
+    backend: 'judge0',
+    detail: ok ? undefined : 'Judge0 unreachable',
+  };
+}
 
 export type Verdict = 'AC' | 'WA' | 'TLE' | 'MLE' | 'RE' | 'CE';
 
@@ -124,7 +156,9 @@ export async function judgeSubmission(spec: SubmissionSpec): Promise<JudgeResult
   // only the CPU limit (ulimit -t) gates real TLE.
   const wallMs = effectiveTimeMs + 8000;
 
-  // Compile once, run every case in a single Judge0 job.
+  // Compile once, run every case in one sandbox/judge job.
+  const executeBatch =
+    judgeBackend() === 'sandbox' ? executeBatchInSandbox : executeBatchJudge0;
   let batch;
   try {
     batch = await executeBatch({

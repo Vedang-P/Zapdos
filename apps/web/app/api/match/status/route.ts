@@ -1,7 +1,6 @@
 import { NextResponse } from 'next/server';
 import { requireUser } from '@/lib/session';
-import { redis } from '@/lib/redis';
-import { QUEUE_KEY } from '@zapdos/match';
+import { queueStatus } from '@/lib/socket';
 import { db } from '@zapdos/db';
 
 export const dynamic = 'force-dynamic';
@@ -10,9 +9,10 @@ export async function GET() {
   try {
     const user = await requireUser();
 
-    // Check if in queue
-    const score = await (redis as any).zscore(QUEUE_KEY, user.id);
-    if (score !== null) {
+    // Check the realtime queue. If the bridge is down, fall through to the
+    // database check so an in-progress match still resolves.
+    const queued = await queueStatus(user.id);
+    if (queued?.status === 'queued') {
       return NextResponse.json({ status: 'queued' });
     }
 

@@ -22,7 +22,21 @@ const nextConfig = {
   ],
   experimental: {
     // Monorepo-friendly: include workspace packages in server/native builds.
-    serverComponentsExternalPackages: ['@prisma/client', 'bcryptjs', 'bullmq', 'ioredis'],
+    serverComponentsExternalPackages: [
+      '@prisma/client',
+      'bcryptjs',
+      'bullmq',
+      'ioredis',
+      '@vercel/sandbox',
+    ],
+  },
+  webpack: (config, { isServer }) => {
+    if (isServer && Array.isArray(config.externals)) {
+      // `@vercel/sandbox` pulls in undici 7, whose private-class-field syntax
+      // webpack 5 (Next 14) can't parse. Keep it as a runtime require.
+      config.externals.push('@vercel/sandbox');
+    }
+    return config;
   },
 };
 

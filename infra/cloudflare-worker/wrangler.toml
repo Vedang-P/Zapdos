@@ -1,0 +1,14 @@
+name = "zapdos"
+main = "src/index.ts"
+compatibility_date = "2025-01-01"
+workers_dev = true
+
+[vars]
+# Replace after the Vercel and Render services are created.
+VERCEL_ORIGIN = "https://zapdos-web.vercel.app"
+REALTIME_ORIGIN = "https://zapdos-realtime.onrender.com"
+
+[triggers]
+# Render's free instance spins down after 15 minutes without traffic. A
+# 5-minute ping to the realtime /health endpoint keeps the WebSocket server warm.
+crons = ["*/5 * * * *"]

@@ -4,7 +4,7 @@
 
 generator client {
   provider      = "prisma-client-js"
-  binaryTargets = ["native", "debian-openssl-3.0.x"]
+  binaryTargets = ["native", "debian-openssl-3.0.x", "rhel-openssl-3.0.x"]
 }
 
 datasource db {
@@ -302,4 +302,19 @@ model Feedback {
   createdAt DateTime @default(now())
 
   @@index([createdAt])
+}
+
+// ---------------------------------------------------------------------------
+// Ephemeral counters (rate limits + monthly judge budget)
+// ---------------------------------------------------------------------------
+
+// Postgres-backed replacement for the old web-process Redis counters. Keys are
+// stable (e.g. `rl:<user>:min`, `budget:<user>`) and `resetAt` marks the end of
+// the current window, so the table stays bounded by the number of users/IPs.
+model Counter {
+  key     String   @id
+  count   Int      @default(0)
+  resetAt DateTime
+
+  @@index([resetAt])
 }

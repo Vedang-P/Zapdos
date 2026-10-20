@@ -13,6 +13,9 @@ import { incrementAndCheckBudget, budgetExceededResponse } from '@/lib/budget';
 import { withJudgeConcurrency } from '@/lib/judge-limiter';
 
 export const dynamic = 'force-dynamic';
+// Vercel Hobby allows up to 300s per function invocation. A batch judge run
+// (compile + every test case) must fit inside this budget.
+export const maxDuration = 300;
 
 /** Build an OpponentSnapshot for a player. */
 async function buildOpponentSnapshot(matchId: string, userId: string, totalProblems: number): Promise<OpponentSnapshot> {

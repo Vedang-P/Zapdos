@@ -1,47 +1,25 @@
 import NextAuth from 'next-auth';
 import { authOptions } from '@/lib/auth';
-import { redis } from '@/lib/redis';
+import { checkLoginRateLimit } from '@/lib/rate-limit';
 import { NextRequest, NextResponse } from 'next/server';
 
 export const dynamic = 'force-dynamic';
 
-const RATE_LIMIT_KEY = 'ratelimit:login:';
-const MAX_ATTEMPTS = 20; // generous for shared nginx IP, prevents brute force
-const WINDOW_MS = 15 * 60 * 1000; // 15 minutes
-
-const INCR_EXPIRE_SCRIPT = `
-local count = redis.call('INCR', KEYS[1])
-if count == 1 then
-  redis.call('PEXPIRE', KEYS[1], ARGV[1])
-end
-return count
-`;
-
-async function checkLoginRateLimit(ip: string): Promise<{ allowed: boolean; retryAfter?: number }> {
-  const key = RATE_LIMIT_KEY + ip;
-  try {
-    const count = (await redis.eval(INCR_EXPIRE_SCRIPT, 1, key, WINDOW_MS)) as number;
-    if (count > MAX_ATTEMPTS) {
-      const ttl = await redis.pttl(key);
-      return { allowed: false, retryAfter: Math.ceil(ttl / 1000) };
-    }
-    return { allowed: true };
-  } catch {
-    // Fail open — if Redis is down, allow the request
-    return { allowed: true };
-  }
-}
-
 function getClientIp(req: NextRequest): string {
-  // X-Real-IP is set by nginx from $remote_addr and cannot be spoofed.
+  // Cloudflare sets CF-Connecting-IP and overwrites any client-supplied value.
+  const cfIp = req.headers.get('cf-connecting-ip');
+  if (cfIp) return cfIp.trim();
+
   const realIp = req.headers.get('x-real-ip');
   if (realIp) return realIp.trim();
-  // Fallback: last entry in X-Forwarded-For is the nginx-visible client.
+
+  // Vercel/Cloudflare prepend the client address; the first entry is the
+  // closest thing to the real client.
   const forwarded = req.headers.get('x-forwarded-for');
   if (forwarded) {
-    const ips = forwarded.split(',');
-    return ips[ips.length - 1]?.trim() ?? 'unknown';
+    return forwarded.split(',')[0]?.trim() ?? 'unknown';
   }
+
   return 'unknown';
 }
 
@@ -51,12 +29,22 @@ async function rateLimitedHandler(req: NextRequest, context: { params: { nextaut
   // Only rate-limit POST (login attempts), not GET (session checks)
   if (req.method === 'POST') {
     const ip = getClientIp(req);
-    const { allowed, retryAfter } = await checkLoginRateLimit(ip);
-    if (!allowed) {
-      return NextResponse.json(
-        { error: 'Too many login attempts. Please try again later.' },
-        { status: 429, headers: { 'Retry-After': String(retryAfter) } },
-      );
+    try {
+      const { allowed, retryAfterMs } = await checkLoginRateLimit(ip);
+      if (!allowed) {
+        return NextResponse.json(
+          { error: 'Too many login attempts. Please try again later.' },
+          {
+            status: 429,
+            headers: {
+              'Retry-After': String(Math.ceil((retryAfterMs ?? 60_000) / 1000)),
+            },
+          },
+        );
+      }
+    } catch (err) {
+      // Fail open: a database hiccup must not lock users out of sign-in.
+      console.error('[auth] login rate limit failed:', err);
     }
   }
   return handler(req, context);
