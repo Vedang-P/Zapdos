@@ -30,6 +30,8 @@ const nextConfig = {
       'bcryptjs',
       'bullmq',
       'ioredis',
+      // AST anti-cheat: loads its own WASM runtime via __dirname, so it must not be bundled.
+      'web-tree-sitter',
     ],
     // Externalized packages are not copied automatically. The judge loads the
     // pre-bundled sandbox SDK at runtime, so ship that artifact.
@@ -37,6 +39,12 @@ const nextConfig = {
       '/api/**/*': [
         '../../node_modules/.pnpm/@prisma+client*/node_modules/.prisma/client/**/*',
         'sandbox/**/*',
+        // AST anti-cheat reads the tree-sitter WASM runtime and the three grammars from disk (see
+        // lib/anticheat/parser.ts). Only the grammars the judge supports are shipped (~5.5 MB, not the 52 MB package).
+        '../../node_modules/.pnpm/web-tree-sitter@*/node_modules/web-tree-sitter/**/*',
+        '../../node_modules/.pnpm/tree-sitter-wasms@*/node_modules/tree-sitter-wasms/out/tree-sitter-cpp.wasm',
+        '../../node_modules/.pnpm/tree-sitter-wasms@*/node_modules/tree-sitter-wasms/out/tree-sitter-python.wasm',
+        '../../node_modules/.pnpm/tree-sitter-wasms@*/node_modules/tree-sitter-wasms/out/tree-sitter-java.wasm',
       ],
     },
   },

@@ -1,0 +1,93 @@
+{
+  "generated_at": "2026-11-14T04:33:29.418Z",
+  "corpus": {
+    "problems": 240,
+    "problems_with_tags": 240,
+    "distinct_tags": 23,
+    "most_common_tags": [
+      {
+        "tag": "implementation",
+        "count": 147
+      },
+      {
+        "tag": "math",
+        "count": 73
+      },
+      {
+        "tag": "greedy",
+        "count": 49
+      },
+      {
+        "tag": "brute force",
+        "count": 44
+      },
+      {
+        "tag": "strings",
+        "count": 22
+      },
+      {
+        "tag": "sortings",
+        "count": 17
+      },
+      {
+        "tag": "constructive algorithms",
+        "count": 16
+      },
+      {
+        "tag": "number theory",
+        "count": 11
+      }
+    ],
+    "generic_tags_ignored_in_strict_metric": [
+      "implementation",
+      "math",
+      "greedy"
+    ]
+  },
+  "embedding": {
+    "dim": 384,
+    "kind": "signed feature hashing of TF-IDF unigrams+bigrams (lexical)",
+    "tags_used_as_input": false
+  },
+  "index_build_ms": {
+    "median": 114.1,
+    "min": 107.1,
+    "max": 243.4,
+    "includes": "Postgres read of all statements + fit IDF + embed every problem"
+  },
+  "retrieval_quality": {
+    "k": 5,
+    "precision_at_5_shares_any_tag": {
+      "recommender": 0.5825,
+      "random_baseline": 0.5254,
+      "lift": 1.109
+    },
+    "precision_at_5_shares_specific_tag": {
+      "recommender": 0.178,
+      "random_baseline": 0.1058,
+      "lift": 1.682,
+      "queries": 127
+    },
+    "mean_tag_jaccard_of_top5": {
+      "recommender": 0.2829,
+      "random_baseline": 0.247
+    },
+    "mmr_lambda_0_7": {
+      "precision_at_5_shares_any_tag": 0.5533,
+      "precision_at_5_shares_specific_tag": 0.1559,
+      "mean_intra_list_similarity": {
+        "pure_top5": 0.2011,
+        "mmr": 0.1509,
+        "note": "lower = more diverse"
+      }
+    }
+  },
+  "recommend_latency_ms": {
+    "queries": 1000,
+    "scope": "full recommend() pipeline (profile + cosine search over the corpus + MMR + evidence + template rationale), in-memory repository, index already built",
+    "p50": 0.71,
+    "p95": 2.35,
+    "p99": 4.38,
+    "max": 7.83
+  }
+}

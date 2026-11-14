@@ -9,47 +9,90 @@ Filters:
   - No generated checker (custom checker required)
   - At least 5 official test cases
 
-Output: /tmp/cf_problems.json
+Output: /tmp/cf_problems.json (override with CF_OUTPUT_PATH)
 
 Usage:
   pip install datasets
   python3 scripts/download-codeforces.py
+
+Environment overrides (all optional; the defaults keep the old behaviour of writing /tmp/cf_problems.json):
+  CF_PROBLEM_LIMIT   how many problems to keep, ranked by number of official tests (default 240, so the
+                     corpus is comfortably "200+")
+  CF_OUTPUT_PATH     where to write the JSON (default /tmp/cf_problems.json; scripts/import-codeforces.ts
+                     reads the same path from CF_PROBLEMS_PATH)
+  CF_STREAMING       "1" (default) streams the dataset and stops early instead of downloading every shard
+                     (the full split is several GB); "0" downloads the whole split like the original script
+  CF_SCAN_FACTOR     streaming only: stop after collecting LIMIT x FACTOR qualifying problems (default 3)
+                     and keep the LIMIT with the most official tests among them
 """
 
 import json
+import os
 import sys
+import time
+
 from datasets import load_dataset
 
+LIMIT = int(os.environ.get("CF_PROBLEM_LIMIT", "240"))
+OUTPUT_PATH = os.environ.get("CF_OUTPUT_PATH", "/tmp/cf_problems.json")
+STREAMING = os.environ.get("CF_STREAMING", "1") != "0"
+SCAN_FACTOR = max(1, int(os.environ.get("CF_SCAN_FACTOR", "3")))
+
+
+def qualifies(row) -> bool:
+    rating = row.get("rating") or 0
+    if not (800 <= rating <= 1200):
+        return False
+    if row.get("input_mode") != "stdio":
+        return False
+    if row.get("interaction_format") is not None:
+        return False
+    if row.get("generated_checker") is not None:
+        return False
+    official = row.get("official_tests") or []
+    return len(official) >= 5
+
+
+# Only the columns this script writes out. The dataset also carries very large columns (generated tests, editorials,
+# executable checkers) that are never used here; projecting them away cuts the amount of data streamed from the Hub.
+COLUMNS = [
+    "id", "contest_id", "index", "title", "description", "input_format", "output_format", "note",
+    "time_limit", "memory_limit", "rating", "tags", "official_tests", "official_tests_complete",
+    "examples", "input_mode", "generated_checker", "interaction_format",
+]
+
+
 def main():
-    print("Loading open-r1/codeforces dataset...")
-    ds = load_dataset("open-r1/codeforces", split="train")
-    print(f"Total problems in dataset: {len(ds)}")
+    started = time.time()
+    print(f"Loading open-r1/codeforces dataset (streaming={STREAMING}, limit={LIMIT})...", flush=True)
+    try:
+        ds = load_dataset("open-r1/codeforces", split="train", streaming=STREAMING, columns=COLUMNS)
+    except TypeError:  # an older/newer datasets build that does not forward `columns`
+        ds = load_dataset("open-r1/codeforces", split="train", streaming=STREAMING)
+    if not STREAMING:
+        print(f"Total problems in dataset: {len(ds)}")
 
     filtered = []
+    scanned = 0
+    stop_after = LIMIT * SCAN_FACTOR
     for row in ds:
-        rating = row.get("rating") or 0
-        if not (800 <= rating <= 1200):
-            continue
-        if row.get("input_mode") != "stdio":
-            continue
-        if row.get("interaction_format") is not None:
-            continue
-        if row.get("generated_checker") is not None:
-            continue
-        official = row.get("official_tests") or []
-        if len(official) < 5:
-            continue
-        filtered.append(row)
+        scanned += 1
+        if qualifies(row):
+            filtered.append(row)
+            if STREAMING and len(filtered) >= stop_after:
+                break
+        if STREAMING and scanned % 100 == 0:
+            print(f"  scanned {scanned} rows, {len(filtered)} qualifying so far ({time.time() - started:.0f}s)", flush=True)
 
-    print(f"Problems matching criteria: {len(filtered)}")
+    print(f"Rows scanned: {scanned}; problems matching criteria: {len(filtered)}")
 
-    if len(filtered) < 200:
+    if len(filtered) < LIMIT:
         print(f"Warning: Only {len(filtered)} problems found with rating 800-1200 and 5+ tests")
         print("Consider expanding rating range to 800-1400")
 
-    # Take top 200 by most test cases (for best coverage)
+    # Keep the problems with the most official tests (best coverage)
     filtered.sort(key=lambda x: len(x.get("official_tests", [])), reverse=True)
-    filtered = filtered[:200]
+    filtered = filtered[:LIMIT]
 
     # Convert to JSON-friendly format
     output = []
@@ -75,10 +118,10 @@ def main():
             "interaction_format": row.get("interaction_format"),
         })
 
-    with open("/tmp/cf_problems.json", "w") as f:
+    with open(OUTPUT_PATH, "w") as f:
         json.dump(output, f)
 
-    print(f"Saved {len(output)} problems to /tmp/cf_problems.json")
+    print(f"Saved {len(output)} problems to {OUTPUT_PATH} ({os.path.getsize(OUTPUT_PATH) / 1e6:.1f} MB) in {time.time() - started:.0f}s")
 
     # Print some stats
     ratings = [row.get("rating", 0) for row in filtered]

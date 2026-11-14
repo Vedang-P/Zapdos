@@ -11,7 +11,7 @@
  * HMAC-authenticated realtime bridge.
  */
 
-import { findPair, dequeue, enqueue, createMatch, QUEUE_KEY, QUEUE_LOCK_KEY, type RedisLike } from '@zapdos/match';
+import { findPair, dequeue, enqueue, createMatch, acquireLock, releaseLock, type RedisLike } from '@zapdos/match';
 import Redis from 'ioredis';
 import { db } from '@zapdos/db';
 import { matchRoom } from '@zapdos/realtime';
@@ -20,10 +20,8 @@ import { createHmac } from 'node:crypto';
 
 const redisUrl = process.env.REDIS_URL ?? 'redis://localhost:6379';
 const POLL_INTERVAL_MS = 2000;
-// Generous enough to cover findPair + dequeue + createMatch even under DB load.
-// createMatch's problem selection was an N+1; it's now batched, but we keep a
-// wide margin so the lock can't expire mid-pipeline and allow a double-pair.
-const LOCK_TTL_MS = 15000;
+// The lock (SET NX PX + Lua compare-and-delete) lives in @zapdos/match/lock.ts so it can be tested on its own.
+// Its 15s TTL is deliberately far longer than findPair + dequeue + createMatch, even under DB load.
 const REALTIME_URL = process.env.REALTIME_URL ?? 'http://localhost:3002';
 const AUTH_SECRET = process.env.AUTH_SECRET ?? process.env.NEXTAUTH_SECRET ?? '';
 
@@ -55,29 +53,9 @@ async function emitSocketEvent(room: string, event: string, payload: unknown): P
   }
 }
 
-/** Acquire a distributed lock for the matchmaking pipeline. Returns lock value if acquired. */
-async function acquireLock(): Promise<string | null> {
-  const lockValue = `${process.pid}-${Date.now()}`;
-  const result = await redis.set(QUEUE_LOCK_KEY, lockValue, 'PX', LOCK_TTL_MS, 'NX');
-  return result === 'OK' ? lockValue : null;
-}
-
-/** Release the lock only if we still hold it (atomic via Lua). */
-const RELEASE_LOCK_SCRIPT = `
-if redis.call('GET', KEYS[1]) == ARGV[1] then
-  return redis.call('DEL', KEYS[1])
-else
-  return 0
-end
-`;
-
-async function releaseLock(lockValue: string): Promise<void> {
-  await redis.eval(RELEASE_LOCK_SCRIPT, 1, QUEUE_LOCK_KEY, lockValue);
-}
-
 async function poll(): Promise<void> {
   // Acquire lock to prevent double-pairing across instances
-  const lockValue = await acquireLock();
+  const lockValue = await acquireLock(redis);
   if (!lockValue) return;
 
   try {
@@ -187,7 +165,7 @@ async function poll(): Promise<void> {
   } catch (err) {
     console.error('[matchmaker] Error:', err);
   } finally {
-    await releaseLock(lockValue);
+    await releaseLock(redis, lockValue);
   }
 }
 

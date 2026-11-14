@@ -44,3 +44,6 @@ coverage/
 
 # generated sandbox SDK bundle
 apps/web/sandbox/
+
+# local docker volumes
+.docker-data/

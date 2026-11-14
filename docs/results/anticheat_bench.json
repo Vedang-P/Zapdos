@@ -1,0 +1,58 @@
+{
+  "machine": {
+    "platform": "darwin arm64",
+    "cpus": 8,
+    "node": "v22.14.0"
+  },
+  "runsPerLanguage": 200,
+  "languages": {
+    "cpp": {
+      "coldStartMs": 96.2,
+      "warmMs": {
+        "p50": 0.8,
+        "p95": 5.22,
+        "p99": 10.2,
+        "mean": 1.29
+      },
+      "tokens": 139,
+      "fingerprints": 49,
+      "similarity": {
+        "renamedAndReformattedCopy": 1,
+        "differentAlgorithm": 0.105
+      },
+      "compare26OthersMs": 24.5
+    },
+    "python": {
+      "coldStartMs": 2.9,
+      "warmMs": {
+        "p50": 0.36,
+        "p95": 1.1,
+        "p99": 4.96,
+        "mean": 0.58
+      },
+      "tokens": 104,
+      "fingerprints": 35,
+      "similarity": {
+        "renamedAndReformattedCopy": 1,
+        "differentAlgorithm": 0.216
+      },
+      "compare26OthersMs": 13.6
+    },
+    "java": {
+      "coldStartMs": 3.9,
+      "warmMs": {
+        "p50": 0.65,
+        "p95": 2.1,
+        "p99": 5.86,
+        "mean": 0.92
+      },
+      "tokens": 156,
+      "fingerprints": 43,
+      "similarity": {
+        "renamedAndReformattedCopy": 1,
+        "differentAlgorithm": 0.244
+      },
+      "compare26OthersMs": 28.1
+    }
+  }
+}

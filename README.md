@@ -22,10 +22,12 @@
 - **Live Timer** — 20-minute server-authoritative countdown
 - **Opponent Awareness** — See test cases passed, wrong submissions, current problem — never their code
 - **ELO Matchmaking** — Classic Elo rating system with skill-based pairing
-- **3 Languages** — C++, Python, Java via Judge0 sandbox
-- **Real-time Battle** — Socket.IO-powered opponent progress feed with Redis adapter for horizontal scaling
+- **3 Languages** — C++, Python, Java via Judge0 sandbox (or a local-compiler backend for development, see [docs/judge-backends.md](docs/judge-backends.md))
+- **Real-time Battle** — Socket.IO-powered opponent progress feed with Redis adapter for horizontal scaling (cross-instance latency is benchmarked in [docs/realtime-benchmark.md](docs/realtime-benchmark.md))
 - **Code Editor** — In-browser Monaco editor with syntax highlighting
-- **200+ Real Problems** — Sourced from Codeforces (rating 800-1200)
+- **240 Real Problems** — Sourced from Codeforces (rating 800-1200)
+- **AST-based Anti-cheat** — tree-sitter syntax trees for C++/Python/Java, winnowed structural fingerprints and AST rule checks (forbidden calls, hard-coded output); findings are flagged for review and never shown to players ([docs/anticheat.md](docs/anticheat.md))
+- **Problem Recommendations** — retrieval over problem embeddings with MMR, and a rationale grounded in the retrieved evidence (deterministic template, or an optional LLM that may only explain the retrieved problems) ([docs/recommender.md](docs/recommender.md))
 - **ELO Rank Tiers** — Bronze → Silver → Gold → Platinum → Diamond → Master → Grandmaster
 - **Win Streaks** — Track hot streaks with visual indicators
 - **Practice Mode** — Play against AI bot with Easy/Medium difficulty
@@ -187,13 +189,15 @@ Zapdos uses **real problems** sourced from Codeforces — not generated.
 
 | Source | Count | How to add |
 |--------|-------|------------|
-| Codeforces (rating 800-1200) | 200 | `pnpm import-codeforces` |
-| **Total** | **200** | |
+| Codeforces (rating 800-1200) | 240 | `pnpm import-codeforces` |
+| **Total** | **240** | |
 
 ### Importing problems
 
 ```bash
-pnpm import-codeforces   # 200 Codeforces easy problems
+pip install datasets
+python3 apps/web/scripts/download-codeforces.py   # writes /tmp/cf_problems.json; CF_PROBLEM_LIMIT (default 240) sets how many
+pnpm import-codeforces                            # 240 Codeforces easy problems
 ```
 
 The importer:
@@ -300,6 +304,9 @@ sudo docker compose --env-file .env.production -f deploy/docker-compose.web.yml 
 | `JUDGE_CONCURRENCY` | No | `4` | Max concurrent `judgeSubmission` calls |
 | `JUDGE0_MAX_CONCURRENT` | No | `3` | Global cap on in-flight Judge0 requests (match the worker pool) |
 | `JUDGE_HW_MULTIPLIER` | No | `2.5` | Slow-hardware time-limit calibration |
+| `JUDGE_BACKEND` | No | `judge0` | `judge0`, `sandbox` (Vercel), or `local` (compiles with this machine's g++/python3/javac; **no isolation**, development and CI only) |
+| `ANTICHEAT_SIMILARITY_THRESHOLD` | No | `0.85` | Flag two accepted submissions whose normalised ASTs are at least this similar |
+| `RECOMMENDER_LLM_URL` / `RECOMMENDER_LLM_API_KEY` | No | — | Optional OpenAI-compatible endpoint for recommendation rationales (`RECOMMENDER_LLM_MODEL`, default `gpt-4o-mini`); without it a deterministic template is used |
 | `MATCH_DURATION_SECONDS` | No | `1200` | Battle duration (20 min) |
 | `WRONG_SUBMISSION_PENALTY` | No | `10` | Points deducted per wrong submission |
 | `REALTIME_CORS_ORIGIN` | No | `http://localhost:3000` | CORS origin for Socket.IO |
@@ -352,11 +359,14 @@ sudo docker compose --env-file .env.production -f deploy/docker-compose.web.yml 
 | `pnpm db:push` | Sync schema to DB (dev) |
 | `pnpm db:migrate:deploy` | Apply migrations (production) |
 | `pnpm db:seed` | Seed initial problems (now a no-op, use importer) |
-| `pnpm import-codeforces` | Import 200 Codeforces problems |
+| `pnpm import-codeforces` | Import 240 Codeforces problems |
 | `pnpm infra:up` | Start Docker services |
 | `pnpm infra:down` | Stop Docker services |
 | `pnpm typecheck` | Typecheck all workspaces |
 | `pnpm lint` | Lint all workspaces |
+| `pnpm test` | Run the vitest suites (anti-cheat, local judge, recommender, matchmaking lock, Elo); integration tests use the local Postgres/Redis and skip when they are not running |
+| `pnpm --filter web bench:realtime` | Socket.IO + Redis pub/sub latency across two server instances ([docs/realtime-benchmark.md](docs/realtime-benchmark.md)) |
+| `pnpm --filter web eval:recommender` | Offline recommender quality and latency ([docs/recommender.md](docs/recommender.md)) |
 
 ---
 
@@ -378,6 +388,18 @@ BASE_URL=http://localhost:3000 pnpm tsx scripts/stress-test.ts
 # Custom user count
 USERS=50 DURATION=60 pnpm tsx scripts/stress-test.ts
 ```
+
+---
+
+## Documentation
+
+| Topic | Doc |
+|-------|-----|
+| AST-based anti-cheat (how it works, limits, benchmark) | [docs/anticheat.md](docs/anticheat.md) |
+| Judge backends (Judge0, Vercel Sandbox, local) | [docs/judge-backends.md](docs/judge-backends.md) |
+| Running Judge0 on Kubernetes (in theory) | [docs/judge0-on-kubernetes.md](docs/judge0-on-kubernetes.md) |
+| Problem recommender | [docs/recommender.md](docs/recommender.md) |
+| Realtime latency benchmark (Socket.IO + Redis) | [docs/realtime-benchmark.md](docs/realtime-benchmark.md) |
 
 ---
 

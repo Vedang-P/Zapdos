@@ -21,18 +21,22 @@ import {
   type BatchCaseResult,
 } from './judge0';
 import { executeBatchInSandbox, pingSandbox } from './sandbox';
+import { executeBatchLocal, pingLocal } from './local';
 import type { LanguageConfig } from './languages';
 
-export type JudgeBackend = 'judge0' | 'sandbox';
+export type JudgeBackend = 'judge0' | 'sandbox' | 'local';
 
 /**
- * `judge0` is the local/self-hosted default. Production on Vercel uses
- * `sandbox` because the public Judge0 CPU/wall/file limits are too small.
+ * `judge0` is the self-hosted default. Production on Vercel uses `sandbox`
+ * because the public Judge0 CPU/wall/file limits are too small. `local` runs
+ * submissions with the compilers installed on this machine - development and
+ * CI only, no isolation (see local.ts).
  */
 function judgeBackend(): JudgeBackend {
-  return (process.env.JUDGE_BACKEND ?? 'judge0').toLowerCase() === 'sandbox'
-    ? 'sandbox'
-    : 'judge0';
+  const configured = (process.env.JUDGE_BACKEND ?? 'judge0').toLowerCase();
+  if (configured === 'sandbox') return 'sandbox';
+  if (configured === 'local') return 'local';
+  return 'judge0';
 }
 
 export async function pingJudge(): Promise<{
@@ -41,6 +45,7 @@ export async function pingJudge(): Promise<{
   detail?: string;
 }> {
   if (judgeBackend() === 'sandbox') return pingSandbox();
+  if (judgeBackend() === 'local') return pingLocal();
   const ok = await pingPiston();
   return {
     ok,
@@ -157,8 +162,9 @@ export async function judgeSubmission(spec: SubmissionSpec): Promise<JudgeResult
   const wallMs = effectiveTimeMs + 8000;
 
   // Compile once, run every case in one sandbox/judge job.
+  const backend = judgeBackend();
   const executeBatch =
-    judgeBackend() === 'sandbox' ? executeBatchInSandbox : executeBatchJudge0;
+    backend === 'sandbox' ? executeBatchInSandbox : backend === 'local' ? executeBatchLocal : executeBatchJudge0;
   let batch;
   try {
     batch = await executeBatch({

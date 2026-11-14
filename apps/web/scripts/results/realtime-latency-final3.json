@@ -1,0 +1,72 @@
+{
+  "generated_at": "2026-11-14T04:38:43.351Z",
+  "claim": "Socket.IO + Redis pub/sub at p99 < 20ms",
+  "method": "latency = client receive time - time just before the signed POST /emit was issued (process.hrtime, one machine); same-instance = the room member on the instance that received the POST, cross-instance = the member on the other instance (Redis pub/sub)",
+  "config": {
+    "clients": 200,
+    "matches": 100,
+    "instances": 2,
+    "transport": "websocket",
+    "measured_events": 5000,
+    "warmup_events": 500,
+    "target_rate_per_s": 250,
+    "achieved_rate_per_s": 249.4,
+    "payload_bytes": 252,
+    "redis": "local Docker redis:7-alpine with requirepass"
+  },
+  "machine": {
+    "platform": "darwin 27.2.0",
+    "cpus": 8,
+    "cpu_model": "Apple M1",
+    "node": "v22.14.0",
+    "loadavg_before": [
+      29.04,
+      41.4,
+      42.85
+    ],
+    "loadavg_after": [
+      30.08,
+      40.68,
+      42.55
+    ]
+  },
+  "deliveries": {
+    "expected": 11000,
+    "received": 11000,
+    "emit_failures": 0
+  },
+  "same_instance": {
+    "n": 5000,
+    "mean_ms": 1.772,
+    "p50_ms": 1.039,
+    "p90_ms": 3.881,
+    "p95_ms": 6.39,
+    "p99_ms": 13.02,
+    "p999_ms": 26.188,
+    "max_ms": 42.459
+  },
+  "cross_instance": {
+    "n": 5000,
+    "mean_ms": 3.197,
+    "p50_ms": 1.908,
+    "p90_ms": 7.048,
+    "p95_ms": 10.571,
+    "p99_ms": 18.806,
+    "p999_ms": 30.658,
+    "max_ms": 42.753
+  },
+  "bridge_ack_ms": {
+    "n": 5000,
+    "mean_ms": 2.047,
+    "p50_ms": 1.357,
+    "p90_ms": 4.229,
+    "p95_ms": 6.812,
+    "p99_ms": 13.162,
+    "p999_ms": 30.257,
+    "max_ms": 42.623
+  },
+  "p99_under_20ms": {
+    "same_instance": true,
+    "cross_instance": true
+  }
+}

@@ -247,6 +247,22 @@ model Submission {
   @@index([problemId])
 }
 
+// AST anti-cheat findings (forbidden calls, hard-coded output, similarity to other submissions); see docs/anticheat.md.
+// One row per flagged submission, never sent to players. Deliberately a standalone table with NO relations and no
+// columns added to Submission: deploying this code against a database that has not been migrated yet cannot affect
+// any existing Submission query - at worst the anti-cheat write fails, and that write is wrapped so it cannot throw.
+model SubmissionCheatFlag {
+  submissionId String   @id
+  userId       String
+  matchId      String?
+  problemId    String
+  flags        Json
+  createdAt    DateTime @default(now())
+
+  @@index([userId])
+  @@index([matchId])
+}
+
 // ---------------------------------------------------------------------------
 // NextAuth models (for OAuth adapters)
 // ---------------------------------------------------------------------------

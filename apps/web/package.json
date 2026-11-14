@@ -21,7 +21,9 @@
     "import-codeforces": "tsx --env-file=../../.env scripts/import-codeforces.ts",
     "validate-problems": "tsx --env-file=../../.env scripts/validate-problems.ts",
     "test-languages": "tsx --env-file=../../.env scripts/test-judge-languages.ts",
-    "wipe-user-data": "tsx --env-file=../../.env scripts/wipe-user-data.ts"
+    "wipe-user-data": "tsx --env-file=../../.env scripts/wipe-user-data.ts",
+    "bench:realtime": "tsx --env-file=../../.env scripts/bench-realtime.ts",
+    "eval:recommender": "tsx --env-file=../../.env scripts/recommender-eval.ts"
   },
   "dependencies": {
     "@auth/prisma-adapter": "2.0.0",
@@ -50,6 +52,8 @@
     "remark-math": "^6.0.0",
     "socket.io": "4.7.5",
     "socket.io-client": "4.7.5",
+    "tree-sitter-wasms": "0.1.11",
+    "web-tree-sitter": "0.22.6",
     "zod": "3.23.8"
   },
   "devDependencies": {

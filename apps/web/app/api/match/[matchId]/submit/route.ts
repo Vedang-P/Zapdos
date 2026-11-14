@@ -11,6 +11,7 @@ import type { SubmissionVerdictPayload, OpponentSnapshot, MatchEndPayload } from
 import { checkRateLimit } from '@/lib/rate-limit';
 import { incrementAndCheckBudget, budgetExceededResponse } from '@/lib/budget';
 import { withJudgeConcurrency } from '@/lib/judge-limiter';
+import { beginAnalysis, finishAntiCheat } from '@/lib/anticheat/service';
 
 export const dynamic = 'force-dynamic';
 // Vercel Hobby allows up to 300s per function invocation. A batch judge run
@@ -166,6 +167,10 @@ export async function POST(
         total: testCases.length,
       },
     });
+
+    // AST anti-cheat: analyse the submitted code (forbidden calls, hard-coded output, fingerprints) while the judge
+    // runs. It never fails or delays the request on its own - see lib/anticheat/service.ts.
+    const antiCheatAnalysis = submissionMode === 'SUBMIT' ? beginAnalysis(language, code) : null;
 
     // Judge (with concurrency limiting to protect Judge0)
     let result;
@@ -377,6 +382,20 @@ export async function POST(
       );
     }
     await Promise.all(socketPromises);
+
+    // Gameplay events are already out; now record anti-cheat findings (bounded, never throws, never shown to players).
+    if (antiCheatAnalysis) {
+      await finishAntiCheat({
+        analysis: antiCheatAnalysis,
+        submissionId: submission.id,
+        userId: user.id,
+        opponentId,
+        matchId,
+        problemId,
+        language,
+        verdict: result.verdict,
+      });
+    }
 
     return NextResponse.json({
       submissionId: submission.id,

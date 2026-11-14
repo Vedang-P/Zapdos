@@ -265,9 +265,9 @@ function convertProblem(cf: CodeforcesProblem): ScrapedProblem | null {
 
 async function importCodeforces(): Promise<void> {
   progress('=== Codeforces Importer ===');
-  progress('Reading /tmp/cf_problems.json...');
-
-  const jsonPath = '/tmp/cf_problems.json';
+  // Same default as scripts/download-codeforces.py; override both with CF_PROBLEMS_PATH / CF_OUTPUT_PATH.
+  const jsonPath = process.env.CF_PROBLEMS_PATH ?? '/tmp/cf_problems.json';
+  progress(`Reading ${jsonPath}...`);
   if (!fs.existsSync(jsonPath)) {
     progress(`ERROR: ${jsonPath} not found.`);
     progress('Run the download script first:');

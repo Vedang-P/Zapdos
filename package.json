@@ -2,7 +2,7 @@
   "name": "zapdos",
   "version": "0.1.0",
   "private": true,
-  "description": "1v1 competitive programming battles — progressive-unlock duels with ELO matchmaking.",
+  "description": "1v1 competitive programming battles \u2014 progressive-unlock duels with ELO matchmaking.",
   "packageManager": "pnpm@9.7.1",
   "engines": {
     "node": ">=20.0.0"
@@ -28,10 +28,11 @@
     "db:studio": "pnpm --filter @zapdos/db studio",
     "db:migrate:deploy": "pnpm --filter @zapdos/db migrate:deploy",
     "infra:up": "docker compose up -d",
-    "infra:down": "docker compose down"
+    "infra:down": "docker compose down",
+    "test": "vitest run"
   },
   "devDependencies": {
-    "typescript": "5.4.5"
-  },
-  "dependencies": {}
+    "typescript": "5.4.5",
+    "vitest": "2.1.9"
+  }
 }

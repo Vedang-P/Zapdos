@@ -9,6 +9,7 @@ import { StatCard } from '@/components/StatCard';
 import { DashboardSkeleton } from '@/components/DashboardSkeleton';
 import { EmptyState } from '@/components/EmptyState';
 import { TerminalWindow } from '@/components/TerminalWindow';
+import { RecommendedProblems } from '@/components/RecommendedProblems';
 import { GlowText } from '@/components/GlowText';
 import { getRankTier, getNextTier } from '@/lib/rank-tiers';
 
@@ -145,6 +146,8 @@ export default function DashboardPage() {
           &gt; find match
         </Link>
       </div>
+
+      <RecommendedProblems />
 
       {/* Match history */}
       <h2 className="mb-3 font-mono text-sm font-medium text-text-secondary tracking-tight">
